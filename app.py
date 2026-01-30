@@ -132,6 +132,8 @@ with st.sidebar:
         # Validate Google Sheets URL pattern immediately
         if re.search(r"/d/([a-zA-Z0-9-_]+)", uploaded_link):
             st.success("🔗 Valid Google Sheets URL detected!", icon="✅")
+        elif uploaded_link.endswith(".csv"):
+            st.success("🌐 Valid Direct CSV Link detected!", icon="✅")
         else:
             st.warning("🔗 Invalid URL format. Please ensure it contains '/d/SHEET_ID'", icon="⚠️")
     else:
@@ -390,9 +392,19 @@ elif uploaded_link and upload_btn:
         # Regex to extract the Google Sheet ID (the long alphanumeric string between /d/ and /)
         match_id = re.search(r"/d/([a-zA-Z0-9-_]+)", uploaded_link)
 
-        if not match_id:
-            # Error handling if the URL format doesn't match standard Google Sheets links
-            st.error("❌ Invalid URL. Please provide a valid Google Sheets link.", icon="🚫")
+        if not match_id and not uploaded_link.endswith(".csv"):
+            # Error handling: Stop execution if the URL is neither a Google Sheet nor a direct CSV.
+            st.error("❌ Invalid URL. Please provide a valid Google Sheets link or a direct .csv link.", icon="🚫")
+            st.stop()
+        elif uploaded_link.endswith(".csv"):
+            # Feedback: Notify user that a direct CSV link was detected.
+            st.toast("🌐 Direct CSV Link detected!", icon="✅")
+
+            export_url = uploaded_link
+            filename = uploaded_link.split("/")[-1]
+            
+            # Hack: Use "GSheet_" prefix to trigger the session reset logic automatically.
+            virtual_filename = f"GSheet_{filename}"
         else:
             # Notify user that the connection process has started
             st.toast("⏳ Connecting to Google Sheets...", icon="🔗")
@@ -421,80 +433,80 @@ elif uploaded_link and upload_btn:
             # Construct the direct export URL
             export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?{params}"
 
-            # Load the data directly into Pandas
-            df = pd.read_csv(export_url)
+        # Load the data directly into Pandas
+        df = pd.read_csv(export_url)
 
-            # Validation 1: Check if file format is supported or readable
-            if df is None:
-                st.warning(f"⚠️ Skipped '{virtual_filename}': Format not supported or file is corrupt.")
-                st.stop()
+        # Validation 1: Check if file format is supported or readable
+        if df is None:
+            st.warning(f"⚠️ Skipped '{virtual_filename}': Format not supported or file is corrupt.")
+            st.stop()
 
-            # Validation 2: Check if the dataframe has 0 rows initially
-            if df.empty:
-                st.warning(f"⚠️ Skipped '{virtual_filename}': The file contains no data (Empty).")
-                st.stop()
+        # Validation 2: Check if the dataframe has 0 rows initially
+        if df.empty:
+            st.warning(f"⚠️ Skipped '{virtual_filename}': The file contains no data (Empty).")
+            st.stop()
 
-            # -------------------------------------------------------
-            # Data Cleaning 1: Remove "Ghost" Data (Empty Structure)
-            # -------------------------------------------------------
-            # Strategy: We use how='all' to strictly remove only 100% empty rows/cols.
-            # We avoid how='any' to preserve rows that have partial data (important for AI).
+        # -------------------------------------------------------
+        # Data Cleaning 1: Remove "Ghost" Data (Empty Structure)
+        # -------------------------------------------------------
+        # Strategy: We use how='all' to strictly remove only 100% empty rows/cols.
+        # We avoid how='any' to preserve rows that have partial data (important for AI).
             
-            # 0. Snapshot Dimensions: Capture original size to calculate cleaned data later
-            initial_rows, initial_cols = df.shape
+        # 0. Snapshot Dimensions: Capture original size to calculate cleaned data later
+        initial_rows, initial_cols = df.shape
 
-            # 1. Drop Rows that are completely empty (axis=0)
-            df.dropna(how="all", axis=0, inplace=True)
+        # 1. Drop Rows that are completely empty (axis=0)
+        df.dropna(how="all", axis=0, inplace=True)
                     
-            # 2. Drop Columns that are completely empty (axis=1)
-            df.dropna(how="all", axis=1, inplace=True)
+        # 2. Drop Columns that are completely empty (axis=1)
+        df.dropna(how="all", axis=1, inplace=True)
 
-            # 3. Calculate Cleaned Data: Determine how many rows/cols were removed
-            # Logic: Original Count - Current Count = Amount Removed
-            cleaned_rows = initial_rows - df.shape[0]
-            cleaned_cols = initial_cols - df.shape[1]
+        # 3. Calculate Cleaned Data: Determine how many rows/cols were removed
+        # Logic: Original Count - Current Count = Amount Removed
+        cleaned_rows = initial_rows - df.shape[0]
+        cleaned_cols = initial_cols - df.shape[1]
 
-            # Feedback: Notify the user if any ghost data was removed
-            # We only show the toast if actual cleaning happened to avoid noise.
-            if cleaned_rows > 0 or cleaned_cols > 0:
-                st.toast(f"🧹 Cleaned '{virtual_filename}': Removed {cleaned_rows} empty rows & {cleaned_cols} empty cols.", icon="✨")
+        # Feedback: Notify the user if any ghost data was removed
+        # We only show the toast if actual cleaning happened to avoid noise.
+        if cleaned_rows > 0 or cleaned_cols > 0:
+            st.toast(f"🧹 Cleaned '{virtual_filename}': Removed {cleaned_rows} empty rows & {cleaned_cols} empty cols.", icon="✨")
 
-            # Validation 3: Ensure the file is not empty after cleaning
-            if df.empty:
-                st.warning(f"⚠️ Skipped '{virtual_filename}': File contains only null/empty values.")
-                st.stop()
+        # Validation 3: Ensure the file is not empty after cleaning
+        if df.empty:
+            st.warning(f"⚠️ Skipped '{virtual_filename}': File contains only null/empty values.")
+            st.stop()
 
-            # -------------------------------------------------------
-            # Data Cleaning 2: Handle Redundancy (Duplicates)
-            # -------------------------------------------------------
-            # Calculate duplicate rows before dropping them to report to the user
-            duplicates_count = df.duplicated().sum()
+        # -------------------------------------------------------
+        # Data Cleaning 2: Handle Redundancy (Duplicates)
+        # -------------------------------------------------------
+        # Calculate duplicate rows before dropping them to report to the user
+        duplicates_count = df.duplicated().sum()
                     
-            if duplicates_count > 0:
-                df.drop_duplicates(inplace=True)
-                st.toast(f"🧹 Removed {duplicates_count} duplicate rows from '{virtual_filename}'", icon="✨")
+        if duplicates_count > 0:
+            df.drop_duplicates(inplace=True)
+            st.toast(f"🧹 Removed {duplicates_count} duplicate rows from '{virtual_filename}'", icon="✨")
 
-            # -------------------------------------------------------
-            # 🔥 DATA OVERWRITE: SINGLE SOURCE ENFORCEMENT
-            # -------------------------------------------------------
-            # Unlike multi-file uploads, URL imports operate in "Single Source" mode.
-            # We strictly OVERWRITE (=) the existing session data instead of appending.
+        # -------------------------------------------------------
+        # 🔥 DATA OVERWRITE: SINGLE SOURCE ENFORCEMENT
+        # -------------------------------------------------------
+        # Unlike multi-file uploads, URL imports operate in "Single Source" mode.
+        # We strictly OVERWRITE (=) the existing session data instead of appending.
 
-            # 1. Reset the Main Dataframe
-            # We wrap the single dataframe in a list [df] to maintain type consistency 
-            # (List of DataFrames) while discarding any previously loaded data.
-            st.session_state.final_df = [df]
+        # 1. Reset the Main Dataframe
+        # We wrap the single dataframe in a list [df] to maintain type consistency 
+        # (List of DataFrames) while discarding any previously loaded data.
+        st.session_state.final_df = [df]
 
-            # 2. Update Tracking History
-            # We replace the tracking list with this specific Google Sheet ID.
-            # This marks the session as "Cloud Mode" for future safety checks.
-            st.session_state.processed_files = [virtual_filename]
+        # 2. Update Tracking History
+        # We replace the tracking list with this specific Google Sheet ID.
+        # This marks the session as "Cloud Mode" for future safety checks.
+        st.session_state.processed_files = [virtual_filename]
             
-            # IMPORTANT: Reset the agent executor so it rebuilds with the new cloud data
-            st.session_state.pop("agent_executor", None)
+        # IMPORTANT: Reset the agent executor so it rebuilds with the new cloud data
+        st.session_state.pop("agent_executor", None)
 
-            # Success notification
-            st.toast("✅ Cloud data imported successfully!", icon="🚀")
+        # Success notification
+        st.toast("✅ Cloud data imported successfully!", icon="🚀")
 
     except Exception as e:
         # ------------------------------------------
@@ -621,9 +633,11 @@ if "agent_executor" not in st.session_state and st.session_state.final_df:
         - If multiple files were uploaded, they are named `df2`, `df3`, etc.
         - **IMPORTANT:** If the user's query requires data from multiple files, you MUST **merge, join, or concatenate** them first using pandas logic before analyzing.
 
-        ### 1. LANGUAGE & TONE (MANDATORY)
-        - You MUST answer strictly in **{chosen_language}**.
-        - Translate ALL your thoughts and final answers into **{chosen_language}**.
+        ### 1. LANGUAGE ENFORCEMENT (ABSOLUTE RULE)
+        - **OUTPUT LANGUAGE:** You MUST respond ONLY in **{chosen_language}**.
+        - **TRANSLATION:** Translate ALL your thoughts and final answers into **{chosen_language}**.
+        - **INPUT HANDLING:** If the user asks in a different language (e.g., Indonesian, Spanish), you must understand their intent mentally, but **TRANSLATE your final response** into **{chosen_language}**.
+        - **EXAMPLE:** If User asks "Tentang apa ini?" (Indonesian) and chosen language is "English", you MUST answer "This document is about..." (English). **DO NOT** answer in Indonesian.
         - **TONE:** Professional, helpful, and natural. Do NOT use rigid numbered lists (like "1. Answer, 2. Insight"). Instead, weave the answer, the insight, and the recommendation into **normal, cohesive paragraphs**.
 
         ### 2. CRITICAL: PARSING ERROR PREVENTION
@@ -637,7 +651,7 @@ if "agent_executor" not in st.session_state and st.session_state.final_df:
             Action Input: <The Python Code>
             Observation: <The Result>
             Final Answer: <Your natural explanation>
-        - **CRITICAL RULE:** After receiving the `Observation:`, **DO NOT** write another `Thought:`. Go **DIRECTLY** to `Final Answer:`. (Writing "Thought" after "Observation" causes a crash).
+        - **CRITICAL RULE:** After receiving the `Observation:`, you **MUST** immediately start your response with `Final Answer:`. **DO NOT** write `Thought:` again. If you write `Thought:` without an `Action:`, the system will crash.
         - **IMPORTANT:** 1. NEVER paste the raw Python code inside the "Final Answer". The code is for the tool, not the user.
             2. If plotting, just create the plot object (e.g., `df.plot()`). Do NOT say "Here is the code". Just say "I have visualized the data...".
 
