@@ -10,7 +10,7 @@
 ## 📌 Overview
 **InsightData** is an advanced AI Data Analyst powered by **Google's Gemini 2.5 Flash** and built upon the **ReAct (Reasoning + Acting)** architecture.
 
-Unlike standard chatbots, InsightData doesn't just guess answers. It actively **reasons** about your CSV or Excel files. It functions like a real data scientist: understanding your dataset structure, writing and executing **Python code** (Pandas/Matplotlib) in real-time, cleaning data on-the-fly, and visualizing trends—all in your preferred language (English or Indonesian).
+Unlike standard chatbots, InsightData doesn't just guess answers. It actively **reasons** about your data—whether it's a local **CSV/Excel file** or a live **Google Sheets link**. It functions like a real data scientist: understanding your dataset structure, writing and executing **Python code** (Pandas/Matplotlib) in real-time, cleaning data on-the-fly, and visualizing trends—all in your preferred language (English or Indonesian).
 
 ## ✨ Key Features
 
@@ -57,8 +57,8 @@ To ensure the AI understands your data, your file **MUST** follow these rules:
 
 1.  **Clone the Repository**
     ```bash
-    git clone [https://github.com/viochris/InsightData-AI-Analyst.git](https://github.com/viochris/InsightData-AI-Analyst.git)
-    cd InsightData-AI-Analyst
+    git clone https://github.com/viochris/insight-data-ai-analyst.git
+    cd insight-data-ai-analyst
     ```
 
 2.  **Install Dependencies**
@@ -93,20 +93,24 @@ To ensure the AI understands your data, your file **MUST** follow these rules:
 ![Home UI](assets/home_ui.png)
 *The clean, modern landing page offering quick configuration for API keys, data uploads, and language settings.*
 
-### 2. Intelligent Visualization
-![Chat Chart](assets/analysis_chart.png)
-*The Agent generating a dynamic chart based on a natural language request, appearing directly in the chat stream.*
+### 2. High-Quality Visualization
+![Analysis Chart](assets/analysis_chart.png)
+*The Agent generates standalone, high-resolution matplotlib charts that can be downloaded directly for reports.*
 
-### 3. Transparent Reasoning (Split View)
-*The ReAct engine provides a detailed breakdown of the analysis. Below is a complete flow captured in two parts:*
+### 3. Transparent Reasoning (Full Interaction Flow)
+*The ReAct engine provides a detailed breakdown of the analysis. Below is the complete flow captured in three parts:*
 
-**Part 1: Logic & Code Execution**
-![Answer Part 1](assets/answer_part1.png)
-*The Agent plans the analysis (Thought) and writes Python code (Action) to calculate the results.*
+**Part 1: Query & Response Generation**  
+![Interaction Part 1](assets/result1.png)  
+*The Agent receives the natural language prompt, instantly generates the visualization within the chat, and begins the analysis.*
 
-**Part 2: Final Insight**
-![Answer Part 2](assets/answer_part2.png)
-*The AI interprets the code results and explains the business insights in the user's chosen language.*
+**Part 2: Deep Dive Analysis**  
+![Interaction Part 2](assets/result2.png)  
+*Instead of just describing the chart, the Agent calculates supporting metrics (rating, price, recommendation rate) to explain **why** the trend exists.*
+
+**Part 3: Final Insight**  
+![Interaction Part 3](assets/result3.png)  
+*The AI synthesizes all statistical findings into a clear, business-friendly summary in the user's chosen language.*
 
 ---
 **Author:** [Silvio Christian, Joe](https://www.linkedin.com/in/silvio-christian-joe)
