@@ -259,292 +259,310 @@ with st.sidebar:
 # ==========================================
 # 6. File Processing & Logic
 # ==========================================
-if uploaded_files and upload_btn:
-    # -----------------------------------------------------------
-    # 🔥 SAFETY CHECK: MODE SWITCHING (CLOUD -> LOCAL)
-    # -----------------------------------------------------------
-    # Detect if the active session currently holds data from a Google Sheet.
-    # Logic: If we find a "GSheet" marker in the history, the user is switching data sources.
-    if any(f.startswith("GSheet_") for f in st.session_state.processed_files):
-        
-        # Action: Perform a "Hard Flush" on the memory.
-        # This prevents cross-contamination (mixing old Cloud data with new Local files).
-        st.session_state.final_df = []          # Reset the main dataframe list
-        st.session_state.processed_files = []  # Reset the file tracking history
-
-        # Feedback: Notify the user that the workspace has been auto-cleaned.
-        st.toast("🔄 Mode switched! Cleared previous Google Sheet data.", icon="♻️")
-
-    # -----------------------------------------------------------
-    # FILE PROCESSING INITIALIZATION
-    # -----------------------------------------------------------
-    # Prepare lists to track only the new files being uploaded in this cycle.
-    new_filenames = []
-    files_to_process = []
-
-    try:
-        # Filter: Identification of files that have not been processed yet.
-        # This prevents re-reading the same file if the user clicks the button multiple times.
-        for uploaded_file in uploaded_files:
-            if uploaded_file.name not in st.session_state.processed_files:
-                files_to_process.append(uploaded_file)
-
-        if not files_to_process:
-            # Notify user if all uploaded files are already in the system
-            st.toast("All uploaded documents are already in the knowledge base.", icon="ℹ️")
-        else:
-            # Display a loading spinner while the system reads and validates data
-            with st.spinner(f"⏳ Processing {len(files_to_process)} new document(s)..."):
-                for uploaded_file in files_to_process:
-                    
-                    # Attempt to read the file
-                    df = read_files(uploaded_file)
-
-                    # Validation 1: Check if file format is supported or readable
-                    if df is None:
-                        st.warning(f"⚠️ Skipped '{uploaded_file.name}': Format not supported or file is corrupt.")
-                        continue
-
-                    # Validation 2: Check if the dataframe has 0 rows initially
-                    if df.empty:
-                        st.warning(f"⚠️ Skipped '{uploaded_file.name}': The file contains no data (Empty).")
-                        continue
-
-                    # -------------------------------------------------------
-                    # Data Cleaning 1: Remove "Ghost" Data (Empty Structure)
-                    # -------------------------------------------------------
-                    # Strategy: We use how='all' to strictly remove only 100% empty rows/cols.
-                    # We avoid how='any' to preserve rows that have partial data (important for AI).
-                    
-                    # 0. Snapshot Dimensions: Capture original size to calculate cleaned data later
-                    initial_rows, initial_cols = df.shape
-
-                    # 1. Drop Rows that are completely empty (axis=0)
-                    df.dropna(how="all", axis=0, inplace=True)
-                            
-                    # 2. Drop Columns that are completely empty (axis=1)
-                    df.dropna(how="all", axis=1, inplace=True)
-
-                    # 3. Calculate Cleaned Data: Determine how many rows/cols were removed
-                    # Logic: Original Count - Current Count = Amount Removed
-                    cleaned_rows = initial_rows - df.shape[0]
-                    cleaned_cols = initial_cols - df.shape[1]
-
-                    # Feedback: Notify the user if any ghost data was removed
-                    # We only show the toast if actual cleaning happened to avoid noise.
-                    if cleaned_rows > 0 or cleaned_cols > 0:
-                        st.toast(f"🧹 Cleaned '{virtual_filename}': Removed {cleaned_rows} empty rows & {cleaned_cols} empty cols.", icon="✨")
-
-                    # Validation 3: Ensure the file is not empty after cleaning
-                    if df.empty:
-                        st.warning(f"⚠️ Skipped '{virtual_filename}': File contains only null/empty values.")
-                        st.stop()
-
-                    # -------------------------------------------------------
-                    # Data Cleaning 2: Handle Redundancy (Duplicates)
-                    # -------------------------------------------------------
-                    # Calculate duplicate rows before dropping them to report to the user
-                    duplicates_count = df.duplicated().sum()
-                    
-                    if duplicates_count > 0:
-                        df.drop_duplicates(inplace=True)
-                        st.toast(f"🧹 Removed {duplicates_count} duplicate rows from '{uploaded_file.name}'", icon="✨")
-
-                    # If all checks pass, update the tracking list and the main dataframe
-                    new_filenames.append(uploaded_file.name)
-                    st.session_state.final_df.append(df)
-
-                # Update the global session state with the new valid files
-                st.session_state.processed_files.extend(new_filenames)
-                
-                # IMPORTANT: Remove 'agent_executor' to force a re-initialization
-                # This ensures the AI Agent "learns" the new data in the next chat interaction.
-                st.session_state.pop("agent_executor", None)
-                
-                # Final Success Message
-                if new_filenames:
-                    st.toast(f"✅ Successfully loaded: {', '.join(new_filenames)}", icon="🚀")
-
-    except Exception as e:
-        # ------------------------------------------
-        # Smart Processing Error Handling
-        # ------------------------------------------
-        error_str = str(e).lower()
-
-        # Case 1: Encoding Issues (Common with CSVs from Excel/Different OS)
-        if "unicodedecodeerror" in error_str or "utf-8" in error_str:
-            st.error(f"🔤 **Encoding Error.** Could not read the file. Please try saving your CSV with 'UTF-8' encoding.", icon="❌")
-
-        # Case 2: Parsing/Format Errors (e.g., uploading an image as .csv)
-        elif "tokenizing" in error_str or "parser" in error_str:
-            st.error(f"📄 **Format Error.** The file structure is corrupt or invalid. Please check the file content.", icon="📉")
-
-        # Case 3: Memory Issues (File too large for Free Tier)
-        elif "memory" in error_str or "allocation" in error_str:
-            st.error(f"💾 **Memory Error.** The file is too large to process in this environment. Please try a smaller file.", icon="🛑")
-
-        # Case 4: General Errors
-        else:
-            st.error(f"❌ **Processing Failed.** An unexpected error occurred: {str(e)}", icon="⚠️")
-
-elif uploaded_link and upload_btn:
-    try:
-        # Regex to extract the Google Sheet ID (the long alphanumeric string between /d/ and /)
-        match_id = re.search(r"/d/([a-zA-Z0-9-_]+)", uploaded_link)
-
-        if not match_id and not uploaded_link.endswith(".csv"):
-            # Error handling: Stop execution if the URL is neither a Google Sheet nor a direct CSV.
-            st.error("❌ Invalid URL. Please provide a valid Google Sheets link or a direct .csv link.", icon="🚫")
-            st.stop()
-        elif uploaded_link.endswith(".csv"):
-            # Feedback: Notify user that a direct CSV link was detected.
-            st.toast("🌐 Direct CSV Link detected!", icon="✅")
-
-            export_url = uploaded_link
-            filename = uploaded_link.split("/")[-1]
+if uploaded_files:
+    if not upload_btn and not st.session_state.final_df:
+        # UX/UI: Provide a clear call-to-action (CTA) 
+        # This guides the user to click the button after they have dropped their files.
+        st.info("👆 **Files detected!** Click **'⚡ Initialize & Analyze'** below to process them.", icon="ℹ️")
+    elif upload_btn:
+        # -----------------------------------------------------------
+        # 🔥 SAFETY CHECK: MODE SWITCHING (CLOUD -> LOCAL)
+        # -----------------------------------------------------------
+        # Detect if the active session currently holds data from a Google Sheet.
+        # Logic: If we find a "GSheet" marker in the history, the user is switching data sources.
+        if any(f.startswith("GSheet_") for f in st.session_state.processed_files):
             
-            # Hack: Use "GSheet_" prefix to trigger the session reset logic automatically.
-            virtual_filename = f"GSheet_{filename}"
-        else:
-            # Notify user that the connection process has started
-            st.toast("⏳ Connecting to Google Sheets...", icon="🔗")
+            # Action: Perform a "Hard Flush" on the memory.
+            # This prevents cross-contamination (mixing old Cloud data with new Local files).
+            st.session_state.final_df = []          # Reset the main dataframe list
+            st.session_state.processed_files = []  # Reset the file tracking history
 
-            sheet_id = match_id.group(1)
-            virtual_filename = f"GSheet_{sheet_id}"
+            # Feedback: Notify the user that the workspace has been auto-cleaned.
+            st.toast("🔄 Mode switched! Cleared previous Google Sheet data.", icon="♻️")
 
-            # Check if a specific Sheet GID (Grid ID) is present in the URL
-            # This ensures we pull the specific tab the user is looking at, not just the first one.
-            match_gid = re.search(r"[?#]gid=([0-9]+)", uploaded_link)
-            
-            if match_gid:
-                gid = match_gid.group(1)
-                # Construct export parameters for a specific tab
-                params = f"format=csv&gid={gid}"
-                
-                # Feedback: Inform the user that a specific tab (GID) is being targeted
-                st.toast(f"📑 Specific tab detected (GID: {gid}). Processing...", icon="✅")
+        # -----------------------------------------------------------
+        # FILE PROCESSING INITIALIZATION
+        # -----------------------------------------------------------
+        # Prepare lists to track only the new files being uploaded in this cycle.
+        new_filenames = []
+        files_to_process = []
+
+        try:
+            # Filter: Identification of files that have not been processed yet.
+            # This prevents re-reading the same file if the user clicks the button multiple times.
+            for uploaded_file in uploaded_files:
+                if uploaded_file.name not in st.session_state.processed_files:
+                    files_to_process.append(uploaded_file)
+
+            if not files_to_process:
+                # Notify user if all uploaded files are already in the system
+                st.toast("All uploaded documents are already in the knowledge base.", icon="ℹ️")
             else:
-                # Default to the first tab if no GID is found
-                params = "format=csv"
+                # Display a loading spinner while the system reads and validates data
+                with st.spinner(f"⏳ Processing {len(files_to_process)} new document(s)..."):
+                    for uploaded_file in files_to_process:
+                        
+                        # Attempt to read the file
+                        df = read_files(uploaded_file)
+
+                        # Validation 1: Check if file format is supported or readable
+                        if df is None:
+                            st.warning(f"⚠️ Skipped '{uploaded_file.name}': Format not supported or file is corrupt.")
+                            continue
+
+                        # Validation 2: Check if the dataframe has 0 rows initially
+                        if df.empty:
+                            st.warning(f"⚠️ Skipped '{uploaded_file.name}': The file contains no data (Empty).")
+                            continue
+
+                        # -------------------------------------------------------
+                        # Data Cleaning 1: Remove "Ghost" Data (Empty Structure)
+                        # -------------------------------------------------------
+                        # Strategy: We use how='all' to strictly remove only 100% empty rows/cols.
+                        # We avoid how='any' to preserve rows that have partial data (important for AI).
+                        
+                        # 0. Snapshot Dimensions: Capture original size to calculate cleaned data later
+                        initial_rows, initial_cols = df.shape
+
+                        # 1. Drop Rows that are completely empty (axis=0)
+                        df.dropna(how="all", axis=0, inplace=True)
+                                
+                        # 2. Drop Columns that are completely empty (axis=1)
+                        df.dropna(how="all", axis=1, inplace=True)
+
+                        # 3. Calculate Cleaned Data: Determine how many rows/cols were removed
+                        # Logic: Original Count - Current Count = Amount Removed
+                        cleaned_rows = initial_rows - df.shape[0]
+                        cleaned_cols = initial_cols - df.shape[1]
+
+                        # Feedback: Notify the user if any ghost data was removed
+                        # We only show the toast if actual cleaning happened to avoid noise.
+                        if cleaned_rows > 0 or cleaned_cols > 0:
+                            st.toast(f"🧹 Cleaned '{virtual_filename}': Removed {cleaned_rows} empty rows & {cleaned_cols} empty cols.", icon="✨")
+
+                        # Validation 3: Ensure the file is not empty after cleaning
+                        if df.empty:
+                            st.warning(f"⚠️ Skipped '{virtual_filename}': File contains only null/empty values.")
+                            st.stop()
+
+                        # -------------------------------------------------------
+                        # Data Cleaning 2: Handle Redundancy (Duplicates)
+                        # -------------------------------------------------------
+                        # Calculate duplicate rows before dropping them to report to the user
+                        duplicates_count = df.duplicated().sum()
+                        
+                        if duplicates_count > 0:
+                            df.drop_duplicates(inplace=True)
+                            st.toast(f"🧹 Removed {duplicates_count} duplicate rows from '{uploaded_file.name}'", icon="✨")
+
+                        # If all checks pass, update the tracking list and the main dataframe
+                        new_filenames.append(uploaded_file.name)
+                        st.session_state.final_df.append(df)
+
+                    # Update the global session state with the new valid files
+                    st.session_state.processed_files.extend(new_filenames)
+                    
+                    # IMPORTANT: Remove 'agent_executor' to force a re-initialization
+                    # This ensures the AI Agent "learns" the new data in the next chat interaction.
+                    st.session_state.pop("agent_executor", None)
+                    
+                    # Final Success Message
+                    if new_filenames:
+                        st.toast(f"✅ Successfully loaded: {', '.join(new_filenames)}", icon="🚀")
+
+        except Exception as e:
+            # ------------------------------------------
+            # Smart Processing Error Handling
+            # ------------------------------------------
+            error_str = str(e).lower()
+
+            # Case 1: Encoding Issues (Common with CSVs from Excel/Different OS)
+            if "unicodedecodeerror" in error_str or "utf-8" in error_str:
+                st.error(f"🔤 **Encoding Error.** Could not read the file. Please try saving your CSV with 'UTF-8' encoding.", icon="❌")
+
+            # Case 2: Parsing/Format Errors (e.g., uploading an image as .csv)
+            elif "tokenizing" in error_str or "parser" in error_str:
+                st.error(f"📄 **Format Error.** The file structure is corrupt or invalid. Please check the file content.", icon="📉")
+
+            # Case 3: Memory Issues (File too large for Free Tier)
+            elif "memory" in error_str or "allocation" in error_str:
+                st.error(f"💾 **Memory Error.** The file is too large to process in this environment. Please try a smaller file.", icon="🛑")
+
+            # Case 4: General Errors
+            else:
+                st.error(f"❌ **Processing Failed.** An unexpected error occurred: {str(e)}", icon="⚠️")
+
+elif uploaded_link:
+    if not upload_btn and not st.session_state.final_df:
+        # UX/UI: Provide a clear call-to-action (CTA) for URL inputs
+        # Confirm that the link is recognized and prompt the user to trigger the connection.
+        st.info("👆 **Link detected!** Click **'⚡ Initialize & Analyze'** below to connect to the cloud data.", icon="ℹ️")
+    elif upload_btn:
+        try:
+            # Regex to extract the Google Sheet ID (the long alphanumeric string between /d/ and /)
+            match_id = re.search(r"/d/([a-zA-Z0-9-_]+)", uploaded_link)
+
+            if not match_id and not uploaded_link.endswith(".csv"):
+                # Error handling: Stop execution if the URL is neither a Google Sheet nor a direct CSV.
+                st.error("❌ Invalid URL. Please provide a valid Google Sheets link or a direct .csv link.", icon="🚫")
+                st.stop()
+            elif uploaded_link.endswith(".csv"):
+                # Feedback: Notify user that a direct CSV link was detected.
+                st.toast("🌐 Direct CSV Link detected!", icon="✅")
+
+                export_url = uploaded_link
+                filename = uploaded_link.split("/")[-1]
                 
-                # Feedback: Inform the user that the default/first tab is being used
-                st.toast("📑 No GID found. Processing default tab...", icon="ℹ️")
+                # Hack: Use "GSheet_" prefix to trigger the session reset logic automatically.
+                virtual_filename = f"GSheet_{filename}"
+            else:
+                # Notify user that the connection process has started
+                st.toast("⏳ Connecting to Google Sheets...", icon="🔗")
 
-            # Construct the direct export URL
-            export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?{params}"
+                sheet_id = match_id.group(1)
+                virtual_filename = f"GSheet_{sheet_id}"
 
-        # Load the data directly into Pandas
-        df = pd.read_csv(export_url)
-
-        # Validation 1: Check if file format is supported or readable
-        if df is None:
-            st.warning(f"⚠️ Skipped '{virtual_filename}': Format not supported or file is corrupt.")
-            st.stop()
-
-        # Validation 2: Check if the dataframe has 0 rows initially
-        if df.empty:
-            st.warning(f"⚠️ Skipped '{virtual_filename}': The file contains no data (Empty).")
-            st.stop()
-
-        # -------------------------------------------------------
-        # Data Cleaning 1: Remove "Ghost" Data (Empty Structure)
-        # -------------------------------------------------------
-        # Strategy: We use how='all' to strictly remove only 100% empty rows/cols.
-        # We avoid how='any' to preserve rows that have partial data (important for AI).
-            
-        # 0. Snapshot Dimensions: Capture original size to calculate cleaned data later
-        initial_rows, initial_cols = df.shape
-
-        # 1. Drop Rows that are completely empty (axis=0)
-        df.dropna(how="all", axis=0, inplace=True)
+                # Check if a specific Sheet GID (Grid ID) is present in the URL
+                # This ensures we pull the specific tab the user is looking at, not just the first one.
+                match_gid = re.search(r"[?#]gid=([0-9]+)", uploaded_link)
+                
+                if match_gid:
+                    gid = match_gid.group(1)
+                    # Construct export parameters for a specific tab
+                    params = f"format=csv&gid={gid}"
                     
-        # 2. Drop Columns that are completely empty (axis=1)
-        df.dropna(how="all", axis=1, inplace=True)
-
-        # 3. Calculate Cleaned Data: Determine how many rows/cols were removed
-        # Logic: Original Count - Current Count = Amount Removed
-        cleaned_rows = initial_rows - df.shape[0]
-        cleaned_cols = initial_cols - df.shape[1]
-
-        # Feedback: Notify the user if any ghost data was removed
-        # We only show the toast if actual cleaning happened to avoid noise.
-        if cleaned_rows > 0 or cleaned_cols > 0:
-            st.toast(f"🧹 Cleaned '{virtual_filename}': Removed {cleaned_rows} empty rows & {cleaned_cols} empty cols.", icon="✨")
-
-        # Validation 3: Ensure the file is not empty after cleaning
-        if df.empty:
-            st.warning(f"⚠️ Skipped '{virtual_filename}': File contains only null/empty values.")
-            st.stop()
-
-        # -------------------------------------------------------
-        # Data Cleaning 2: Handle Redundancy (Duplicates)
-        # -------------------------------------------------------
-        # Calculate duplicate rows before dropping them to report to the user
-        duplicates_count = df.duplicated().sum()
+                    # Feedback: Inform the user that a specific tab (GID) is being targeted
+                    st.toast(f"📑 Specific tab detected (GID: {gid}). Processing...", icon="✅")
+                else:
+                    # Default to the first tab if no GID is found
+                    params = "format=csv"
                     
-        if duplicates_count > 0:
-            df.drop_duplicates(inplace=True)
-            st.toast(f"🧹 Removed {duplicates_count} duplicate rows from '{virtual_filename}'", icon="✨")
+                    # Feedback: Inform the user that the default/first tab is being used
+                    st.toast("📑 No GID found. Processing default tab...", icon="ℹ️")
 
-        # -------------------------------------------------------
-        # 🔥 DATA OVERWRITE: SINGLE SOURCE ENFORCEMENT
-        # -------------------------------------------------------
-        # Unlike multi-file uploads, URL imports operate in "Single Source" mode.
-        # We strictly OVERWRITE (=) the existing session data instead of appending.
+                # Construct the direct export URL
+                export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?{params}"
 
-        # 1. Reset the Main Dataframe
-        # We wrap the single dataframe in a list [df] to maintain type consistency 
-        # (List of DataFrames) while discarding any previously loaded data.
-        st.session_state.final_df = [df]
+            # Load the data directly into Pandas
+            df = pd.read_csv(export_url)
 
-        # 2. Update Tracking History
-        # We replace the tracking list with this specific Google Sheet ID.
-        # This marks the session as "Cloud Mode" for future safety checks.
-        st.session_state.processed_files = [virtual_filename]
-            
-        # IMPORTANT: Reset the agent executor so it rebuilds with the new cloud data
-        st.session_state.pop("agent_executor", None)
+            # Validation 1: Check if file format is supported or readable
+            if df is None:
+                st.warning(f"⚠️ Skipped '{virtual_filename}': Format not supported or file is corrupt.")
+                st.stop()
 
-        # Success notification
-        st.toast("✅ Cloud data imported successfully!", icon="🚀")
+            # Validation 2: Check if the dataframe has 0 rows initially
+            if df.empty:
+                st.warning(f"⚠️ Skipped '{virtual_filename}': The file contains no data (Empty).")
+                st.stop()
 
-    except Exception as e:
-        # ------------------------------------------
-        # Smart Import Error Handling
-        # ------------------------------------------
-        error_str = str(e).lower()
+            # -------------------------------------------------------
+            # Data Cleaning 1: Remove "Ghost" Data (Empty Structure)
+            # -------------------------------------------------------
+            # Strategy: We use how='all' to strictly remove only 100% empty rows/cols.
+            # We avoid how='any' to preserve rows that have partial data (important for AI).
+                
+            # 0. Snapshot Dimensions: Capture original size to calculate cleaned data later
+            initial_rows, initial_cols = df.shape
 
-        # Case 1: Permission Denied (Private Sheet) - MOST COMMON
-        if "403" in error_str or "forbidden" in error_str:
-            st.error(
-                "🔒 **Access Denied.** The Google Sheet is Private.\n"
-                "**Solution:** Open the Sheet -> Click 'Share' -> Change to **'Anyone with the link'** -> Try again.", 
-                icon="🚫"
-            )
+            # 1. Drop Rows that are completely empty (axis=0)
+            df.dropna(how="all", axis=0, inplace=True)
+                        
+            # 2. Drop Columns that are completely empty (axis=1)
+            df.dropna(how="all", axis=1, inplace=True)
 
-        # Case 2: Sheet Not Found (Deleted or Wrong ID)
-        elif "404" in error_str or "not found" in error_str:
-            st.error("🔍 **Sheet Not Found.** The URL is incorrect or the Sheet has been deleted.", icon="❓")
+            # 3. Calculate Cleaned Data: Determine how many rows/cols were removed
+            # Logic: Original Count - Current Count = Amount Removed
+            cleaned_rows = initial_rows - df.shape[0]
+            cleaned_cols = initial_cols - df.shape[1]
 
-        # Case 3: Empty Data / HTML Response (Usually happens if the link redirects to a login page)
-        elif "parsererror" in error_str or "no columns" in error_str:
-            st.error("📄 **Format Error.** Could not read CSV data. Ensure the Sheet is not empty and is publicly accessible.", icon="📉")
+            # Feedback: Notify the user if any ghost data was removed
+            # We only show the toast if actual cleaning happened to avoid noise.
+            if cleaned_rows > 0 or cleaned_cols > 0:
+                st.toast(f"🧹 Cleaned '{virtual_filename}': Removed {cleaned_rows} empty rows & {cleaned_cols} empty cols.", icon="✨")
 
-        # Case 4: Network / Connection Issues
-        elif "name resolution" in error_str or "connection" in error_str:
-            st.error("🌐 **Connection Error.** Failed to reach Google Servers. Check your internet connection.", icon="📡")
+            # Validation 3: Ensure the file is not empty after cleaning
+            if df.empty:
+                st.warning(f"⚠️ Skipped '{virtual_filename}': File contains only null/empty values.")
+                st.stop()
 
-        # Case 5: General Error
-        else:
-            st.error(f"❌ **Import Failed.** An unexpected error occurred: {str(e)}", icon="⚠️")
+            # -------------------------------------------------------
+            # Data Cleaning 2: Handle Redundancy (Duplicates)
+            # -------------------------------------------------------
+            # Calculate duplicate rows before dropping them to report to the user
+            duplicates_count = df.duplicated().sum()
+                        
+            if duplicates_count > 0:
+                df.drop_duplicates(inplace=True)
+                st.toast(f"🧹 Removed {duplicates_count} duplicate rows from '{virtual_filename}'", icon="✨")
+
+            # -------------------------------------------------------
+            # 🔥 DATA OVERWRITE: SINGLE SOURCE ENFORCEMENT
+            # -------------------------------------------------------
+            # Unlike multi-file uploads, URL imports operate in "Single Source" mode.
+            # We strictly OVERWRITE (=) the existing session data instead of appending.
+
+            # 1. Reset the Main Dataframe
+            # We wrap the single dataframe in a list [df] to maintain type consistency 
+            # (List of DataFrames) while discarding any previously loaded data.
+            st.session_state.final_df = [df]
+
+            # 2. Update Tracking History
+            # We replace the tracking list with this specific Google Sheet ID.
+            # This marks the session as "Cloud Mode" for future safety checks.
+            st.session_state.processed_files = [virtual_filename]
+                
+            # IMPORTANT: Reset the agent executor so it rebuilds with the new cloud data
+            st.session_state.pop("agent_executor", None)
+
+            # Success notification
+            st.toast("✅ Cloud data imported successfully!", icon="🚀")
+
+        except Exception as e:
+            # ------------------------------------------
+            # Smart Import Error Handling
+            # ------------------------------------------
+            error_str = str(e).lower()
+
+            # Case 1: Permission Denied (Private Sheet) - MOST COMMON
+            if "403" in error_str or "forbidden" in error_str:
+                st.error(
+                    "🔒 **Access Denied.** The Google Sheet is Private.\n"
+                    "**Solution:** Open the Sheet -> Click 'Share' -> Change to **'Anyone with the link'** -> Try again.", 
+                    icon="🚫"
+                )
+
+            # Case 2: Sheet Not Found (Deleted or Wrong ID)
+            elif "404" in error_str or "not found" in error_str:
+                st.error("🔍 **Sheet Not Found.** The URL is incorrect or the Sheet has been deleted.", icon="❓")
+
+            # Case 3: Empty Data / HTML Response (Usually happens if the link redirects to a login page)
+            elif "parsererror" in error_str or "no columns" in error_str:
+                st.error("📄 **Format Error.** Could not read CSV data. Ensure the Sheet is not empty and is publicly accessible.", icon="📉")
+
+            # Case 4: Network / Connection Issues
+            elif "name resolution" in error_str or "connection" in error_str:
+                st.error("🌐 **Connection Error.** Failed to reach Google Servers. Check your internet connection.", icon="📡")
+
+            # Case 5: General Error
+            else:
+                st.error(f"❌ **Import Failed.** An unexpected error occurred: {str(e)}", icon="⚠️")
 
 elif not (uploaded_files or uploaded_link):
-    # Default State: Instructions when no data is loaded yet
-    st.info(
-        "👈 **Awaiting Data Source**\n\n"
-        "Please upload a **CSV/Excel file** OR paste a **Google Sheets URL** in the sidebar,\n"
-        "then click **'⚡ Initialize & Analyze'** to start."
-    )
+    # ----------------------------------------------------------------
+    # DEFAULT "IDLE" STATE
+    # ----------------------------------------------------------------
+    # No active input widgets detected (Empty File Uploader & Empty URL field).
+    
+    # We only display the "Awaiting Data" instruction if the system memory is ALSO empty.
+    # Logic: If 'final_df' has data, it means the user has already loaded a file.
+    # We don't want to block the chat view just because they cleared the sidebar widget.
+    if not st.session_state.final_df:
+        st.info(
+            "👈 **Awaiting Data Source**\n\n"
+            "Please upload a **CSV/Excel file** OR paste a **Google Sheets URL** in the sidebar,\n"
+            "then click **'⚡ Initialize & Analyze'** to start."
+        )
 
 # ==========================================
 # 7. AI Engine & Memory Initialization
