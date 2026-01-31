@@ -10,7 +10,9 @@
 ## 📌 Overview
 **InsightData** is an advanced AI Data Analyst powered by **Google's Gemini 2.5 Flash** and built upon the **ReAct (Reasoning + Acting)** architecture.
 
-Unlike standard chatbots, InsightData doesn't just guess answers. It actively **reasons** about your data—whether it's a local **CSV/Excel file** or a live **Google Sheets link**. It functions like a real data scientist: understanding your dataset structure, writing and executing **Python code** (Pandas/Matplotlib) in real-time, cleaning data on-the-fly, and visualizing trends—all in your preferred language (English or Indonesian).
+Unlike standard chatbots, InsightData doesn't just guess answers. It actively **reasons** about your data—whether it's a local **CSV/Excel file**, a live **Google Sheets link**, or a **Direct CSV URL**. It functions like a real data scientist: understanding your dataset structure, writing and executing **Python code** (Pandas/Matplotlib) in real-time, cleaning data on-the-fly, and visualizing trends—all in your preferred language (English or Indonesian).
+
+It enforces strict **Deep Dive Logic**: when asked *"Why?"*, it refuses to rely on assumptions. Instead, it investigates statistical correlations (e.g., Price vs. Rating) to prove the reasons behind a trend.
 
 ## ✨ Key Features
 
@@ -26,12 +28,13 @@ Using the `LangChain` Pandas Agent framework, the assistant follows a strict cog
 * **Smart Translation:** The agent enforces a strict logic layer to ensure the final answer matches your chosen language, regardless of the language used in the query.
 
 ### 📊 Auto-Visualization & Download
-* **Generative Plotting:** Just ask *"Show me the sales trend"* or *"Plot the top 5 categories"*, and the AI will generate **Matplotlib/Seaborn** charts instantly.
-* **Interactive Downloads:** Every generated plot comes with a direct **📥 Download Button** so you can save insights for your reports.
+* **Generative Plotting:** Just ask *"Show me the sales trend"* or *"Plot the top 5 [Category Name]"* (e.g., *"Plot the top 5 most sold products"*), and the AI will generate **Matplotlib/Seaborn** charts instantly.
+* **Interactive Downloads:** Every generated plot comes with a direct **📥 Download Button** so you can save insights for your reports immediately.
 
 ### 🛡️ Smart Data Handling & Safety
-* **Auto-Cleaning:** automatically removes "ghost" data (empty rows/cols) and duplicates upon upload to prevent system crashes.
-* **Hybrid Data Source:** Supports local **Files (.csv/.xlsx)** and **Google Sheets (URL)**.
+* **Auto-Cleaning:** Automatically removes "ghost" data (empty rows/cols) and duplicates upon upload to prevent system crashes.
+* **Smart Mode Switching:** Prevents cross-contamination by automatically flushing memory when switching between Local Files and Cloud URLs.
+* **Hybrid Data Source:** Supports local **Files (.csv/.xlsx)** and **Cloud URLs (Google Sheets & Direct .csv links)**.
 * **Privacy First:** Data is processed in temporary memory. The Agent cannot overwrite or delete your original files.
 
 ## 🛠️ Tech Stack
@@ -51,13 +54,13 @@ To ensure the AI understands your data, your file **MUST** follow these rules:
 
 ### 2. Data Source Priority
 * **Priority:** The system prioritizes **Local Files** over URLs.
-* **Switching:** If you want to analyze a Google Sheet URL, you must remove all uploaded files first.
+* **Switching:** If you want to analyze a URL, you must remove all uploaded files first.
 
 ## 📦 Installation
 
 1.  **Clone the Repository**
     ```bash
-    git clone https://github.com/viochris/insight-data-ai-analyst.git
+    git clone [https://github.com/viochris/insight-data-ai-analyst.git](https://github.com/viochris/insight-data-ai-analyst.git)
     cd insight-data-ai-analyst
     ```
 
@@ -78,7 +81,7 @@ To ensure the AI understands your data, your file **MUST** follow these rules:
     * Select your **Language Preference** (English/Indonesian).
 2.  **Load Data:**
     * **Option A:** Upload `.csv` or `.xlsx` files.
-    * **Option B:** Paste a public Google Sheets URL.
+    * **Option B:** Paste a public Google Sheets URL **OR a direct .csv link**.
     * Click **"⚡ Initialize & Analyze"** to wake up the Agent.
 3.  **Query:**
     * Type your question naturally (e.g., *"What is the total revenue?"* or *"Visualize the correlation between price and rating"*).
@@ -89,11 +92,11 @@ To ensure the AI understands your data, your file **MUST** follow these rules:
 
 ## 📷 Gallery
 
-### 1. Landing Interface
+### 1. Landing Interface  
 ![Home UI](assets/home_ui.png)
 *The clean, modern landing page offering quick configuration for API keys, data uploads, and language settings.*
 
-### 2. High-Quality Visualization
+### 2. High-Quality Visualization  
 ![Analysis Chart](assets/analysis_chart.png)
 *The Agent generates standalone, high-resolution matplotlib charts that can be downloaded directly for reports.*
 
@@ -106,7 +109,7 @@ To ensure the AI understands your data, your file **MUST** follow these rules:
 
 **Part 2: Deep Dive Analysis**  
 ![Interaction Part 2](assets/result2.png)  
-*Instead of just describing the chart, the Agent calculates supporting metrics (rating, price, recommendation rate) to explain **why** the trend exists.*
+*Instead of just describing the chart, the Agent calculates supporting metrics (rating, price, recommendation rate) to explain **why** the trend exists (e.g., finding that 'Casual' style is popular due to lower average price).*
 
 **Part 3: Final Insight**  
 ![Interaction Part 3](assets/result3.png)  
