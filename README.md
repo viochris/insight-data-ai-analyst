@@ -60,7 +60,7 @@ To ensure the AI understands your data, your file **MUST** follow these rules:
 
 1.  **Clone the Repository**
     ```bash
-    git clone [https://github.com/viochris/insight-data-ai-analyst.git](https://github.com/viochris/insight-data-ai-analyst.git)
+    git clone https://github.com/viochris/insight-data-ai-analyst.git
     cd insight-data-ai-analyst
     ```
 
